@@ -12,10 +12,11 @@ import android.util.Log;
 public class BlockMonitor {
     private static final String TAG = "BlockMonitor";
     private static final String MONITOR_THREAD = "block_monitor";
-    private static final String LOG_FORMATTER = "%s ########### Processing: %sms";
+    private static final String LOG_FORMATTER = "%s, took: %sms";
     private static final long MIN_BLOCK_TIME = 30;
     private static final long MAX_BLOCK_TIME = 3000;
     private static final float TRACE_STACK_BUFFER_FACTOR = 0.2f;
+    private static final int TRACE_STACK_BUFFER_TIME = 500;
 
     private HandlerThread mMonitorThread;
     private Handler mMonitorHandler;
@@ -32,19 +33,20 @@ public class BlockMonitor {
         mMonitorHandler = new MonitorHandler(mMonitorThread.getLooper(), target, path);
     }
 
-    public void startMonitor(String tag) {
+    public void startMonitor(String log) {
         mStartTime = SystemClock.uptimeMillis();
-        mMonitorHandler.sendEmptyMessageDelayed(MonitorHandler.MSG_TRACE_STACK, mTraceStackTime);
+        Message msg = mMonitorHandler.obtainMessage(MonitorHandler.MSG_TRACE_STACK, log);
+        mMonitorHandler.sendMessageDelayed(msg, mTraceStackTime);
     }
 
-    public void stopMonitor(String tag) {
+    public void stopMonitor(String log) {
         mMonitorHandler.removeMessages(MonitorHandler.MSG_TRACE_STACK);
         if (mStartTime > 0) {
             long cost = SystemClock.uptimeMillis() - mStartTime;
             if (cost > mBlockTime) {
-                if (!TextUtils.isEmpty(tag)) {
-                    String log = String.format(LOG_FORMATTER, tag, cost);
-                    mMonitorHandler.obtainMessage(MonitorHandler.MSG_PRINT_LOG, log).sendToTarget();
+                if (!TextUtils.isEmpty(log)) {
+                    String formatLog = String.format(LOG_FORMATTER, log, cost);
+                    mMonitorHandler.obtainMessage(MonitorHandler.MSG_PRINT_LOG, formatLog).sendToTarget();
                 }
             }
         }
@@ -69,8 +71,9 @@ public class BlockMonitor {
             }
         }
 
-        private void traceStack() {
+        private void traceStack(String log) {
             StringBuilder sb = new StringBuilder();
+            sb.append(log).append("\n");
             StackTraceElement[] stackTrace = mTarget.getThread().getStackTrace();
             for (StackTraceElement s : stackTrace) {
                 sb.append(s.toString()).append("\n");
@@ -89,13 +92,14 @@ public class BlockMonitor {
                 String ss = mStackTrace + log + "\n------------------------------------\n";
                 mLogFile.log(ss);
             }
+            mStackTrace = null;
         }
 
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case MSG_TRACE_STACK:
-                    traceStack();
+                    traceStack((String) msg.obj);
                     break;
                 case MSG_PRINT_LOG:
                     printLog((String) msg.obj);
